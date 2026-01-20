@@ -87,7 +87,6 @@
         <p class="text-gray-600">將連結傳給好友即可開始跨裝置對弈！</p>
     </div>
 
-    <!-- 狀態顯示區 -->
     <div id="status-card" class="mb-4 p-4 bg-white rounded-xl shadow-md w-full max-w-md flex items-center justify-between transition-all">
         <div class="flex flex-col">
             <div class="flex items-center gap-3">
@@ -99,20 +98,15 @@
         <button onclick="requestReset()" class="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg transition text-sm">重置遊戲</button>
     </div>
 
-    <!-- 棋盤本體 -->
     <div id="board" class="board w-full max-w-md rounded-sm overflow-hidden mb-8"></div>
 
-    <!-- 互動操作區 -->
     <div class="flex flex-col gap-3 w-full max-w-md">
         <button id="share-btn" onclick="shareToLine()" class="flex items-center justify-center gap-2 w-full py-4 bg-[#06C755] text-white font-bold rounded-2xl shadow-lg hover:brightness-110 transition">
-            <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M24 10.304c0-5.369-5.383-9.738-12-9.738-6.616 0-12 4.369-12 9.738 0 4.814 4.269 8.846 10.036 9.608.391.084.922.258 1.057.592.121.303.079.778.039 1.085l-.171 1.047c-.052.308-.252 1.21.108 1.652.359.442 1.018.241 1.419.007.401-.233 2.162-1.272 2.951-1.789.68-.445 1.43-.986 1.954-1.192 3.826-1.504 6.526-5.023 6.526-9.03zm-14.735 4.37h-1.391c-.244 0-.441-.197-.441-.441V9.522a.441.441 0 0 1 .441-.441h1.391c.244 0 .441.197.441.441v4.711a.441.441 0 0 1-.441-.441zm1.782 0h-1.391a.441.441 0 0 1-.441-.441V9.522a.441.441 0 0 1 .441-.441h1.391c.244 0 .441.197.441.441v4.711a.441.441 0 0 1-.441.441zm6.052-4.144h-1.111l-1.637 2.455v-2.455a.441.441 0 0 0-.441-.441h-1.391a.441.441 0 0 0-.441.441v4.711c0 .244.197.441.441.441h1.391a.441.441 0 0 0 .441-.441v-2.455l1.637 2.455h1.111a.441.441 0 0 0 .441-.441v-4.711a.441.441 0 0 0-.441-.441zm-9.332 0h-1.391a.441.441 0 0 0-.441.441v4.711c0 .244.197.441.441.441h1.391a.441.441 0 0 0 .441-.441v-4.711a.441.441 0 0 0-.441-.441z"/></svg>
             邀請 LINE 好友
         </button>
         <button onclick="copyLink()" class="w-full py-2 text-sm text-gray-500 underline">複製專屬對戰連結</button>
-        <p class="text-[10px] text-gray-400 text-center mt-1">* 提示：將此檔案命名為 index.html 並部署至 GitHub Pages 即可正常對戰</p>
     </div>
 
-    <!-- 獲勝彈窗 -->
     <div id="win-modal" class="fixed inset-0 bg-black/50 flex items-center justify-center hidden z-50 p-6">
         <div class="bg-white rounded-3xl p-8 max-w-sm w-full text-center shadow-2xl">
             <div id="winner-icon" class="w-16 h-16 rounded-full mx-auto mb-4 border-4 border-gray-100 shadow-inner"></div>
@@ -121,20 +115,26 @@
         </div>
     </div>
 
-    <!-- Firebase SDK -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, onSnapshot, updateDoc, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // Firebase 設定 - 這些變數在正式部署環境中由系統提供，手動執行時需替換為您自己的 Firebase Config
-        const firebaseConfig = JSON.parse(__firebase_config);
+        // Firebase 配置
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+            apiKey: "",
+            authDomain: "gomoku-game.firebaseapp.com",
+            projectId: "gomoku-game",
+            storageBucket: "gomoku-game.appspot.com",
+            messagingSenderId: "123456789",
+            appId: "1:123456789:web:abcdef"
+        };
+
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'gomoku-default';
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'gomoku-v1';
 
-        // 遊戲狀態與參數
         const BOARD_SIZE = 15;
         let boardState = Array(BOARD_SIZE * BOARD_SIZE).fill(0); 
         let currentPlayer = 'black';
@@ -143,14 +143,17 @@
         const urlParams = new URLSearchParams(window.location.search);
         let roomID = urlParams.get('room');
         
-        // 房號處理
+        // 房號與 URL 更新邏輯修正
         if (!roomID) {
             roomID = 'room-' + Math.random().toString(36).substr(2, 6);
-            if (window.location.protocol !== 'blob:' && window.history.replaceState) {
+            // 檢查是否不在沙盒環境且支援 History API 且不是 blob 網址
+            if (window.location.protocol !== 'blob:' && !window.location.href.includes('usercontent.goog') && window.history.replaceState) {
                 try {
-                    const newUrl = window.location.pathname + '?room=' + roomID;
+                    const newUrl = window.location.origin + window.location.pathname + '?room=' + roomID;
                     window.history.replaceState({ path: newUrl }, '', newUrl);
-                } catch (e) { console.warn(e); }
+                } catch (e) {
+                    console.warn("History API 修改失敗，但在正式環境下不影響功能", e);
+                }
             }
         }
 
@@ -166,22 +169,10 @@
 
         roomInfo.innerText = `房間編號: ${roomID}`;
 
-        const initGame = async () => {
-            try {
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    await signInWithCustomToken(auth, __initial_auth_token);
-                } else {
-                    await signInAnonymously(auth);
-                }
-            } catch (e) {
-                console.error("Auth failed", e);
-            }
-        };
+        signInAnonymously(auth).catch(e => console.error(e));
 
         onAuthStateChanged(auth, (user) => {
-            if (user) {
-                setupGameSync(user.uid);
-            }
+            if (user) setupGameSync(user.uid);
         });
 
         function setupGameSync(uid) {
@@ -190,28 +181,23 @@
             onSnapshot(roomRef, (snapshot) => {
                 if (!snapshot.exists()) {
                     myRole = 'black';
-                    const initialData = {
+                    setDoc(roomRef, {
                         board: JSON.stringify(boardState),
                         turn: 'black',
                         blackPlayer: uid,
                         whitePlayer: null,
                         lastMove: null,
-                        winner: null
-                    };
-                    setDoc(roomRef, initialData);
+                        winner: null,
+                        createdAt: Date.now()
+                    });
                 } else {
                     const data = snapshot.data();
                     if (!myRole) {
-                        if (data.blackPlayer === uid) {
-                            myRole = 'black';
-                        } else if (!data.whitePlayer || data.whitePlayer === uid) {
+                        if (data.blackPlayer === uid) myRole = 'black';
+                        else if (!data.whitePlayer || data.whitePlayer === uid) {
                             myRole = 'white';
-                            if (!data.whitePlayer) {
-                                updateDoc(roomRef, { whitePlayer: uid });
-                            }
-                        } else {
-                            myRole = 'spectator';
-                        }
+                            if (!data.whitePlayer) updateDoc(roomRef, { whitePlayer: uid });
+                        } else myRole = 'spectator';
                     }
                     boardState = JSON.parse(data.board);
                     currentPlayer = data.turn;
@@ -219,9 +205,7 @@
                     gameOver = !!data.winner;
                     updateUI(data.winner);
                 }
-            }, (error) => {
-                console.error("Firestore Error:", error);
-            });
+            }, (error) => console.error(error));
         }
 
         function drawBoard() {
@@ -241,102 +225,87 @@
         }
 
         async function handleMove(idx) {
-            if (gameOver || boardState[idx] !== 0 || myRole === 'spectator') return;
-            if (myRole !== currentPlayer) return;
-
+            if (gameOver || boardState[idx] !== 0 || myRole === 'spectator' || myRole !== currentPlayer) return;
             const newBoard = [...boardState];
             newBoard[idx] = (currentPlayer === 'black' ? 1 : 2);
             const r = Math.floor(idx / BOARD_SIZE);
             const c = idx % BOARD_SIZE;
             const winner = checkWin(newBoard, r, c) ? currentPlayer : null;
-
             const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomID);
-            try {
-                await updateDoc(roomRef, {
-                    board: JSON.stringify(newBoard),
-                    turn: currentPlayer === 'black' ? 'white' : 'black',
-                    lastMove: idx,
-                    winner: winner
-                });
-            } catch (err) { console.error(err); }
+            updateDoc(roomRef, {
+                board: JSON.stringify(newBoard),
+                turn: currentPlayer === 'black' ? 'white' : 'black',
+                lastMove: idx,
+                winner: winner
+            });
         }
 
         function updateUI(winner) {
             drawBoard();
-            const roleLabels = { black: '黑棋(房主)', white: '白棋(挑戰者)', spectator: '觀戰者' };
-            roleText.innerText = `你的身分：${roleLabels[myRole] || '分配中...'}`;
+            const labels = { black: '黑棋(房主)', white: '白棋(挑戰者)', spectator: '觀戰者' };
+            roleText.innerText = `你的身分：${labels[myRole] || '分配中...'}`;
             if (winner) {
-                document.getElementById('winner-text').innerText = `${winner === 'black' ? '黑棋' : '白棋'} 大獲全勝！`;
-                document.getElementById('winner-icon').className = `w-16 h-16 rounded-full mx-auto mb-4 border-4 border-gray-100 shadow-inner ${winner === 'black' ? 'bg-black' : 'bg-white border-gray-300'}`;
+                document.getElementById('winner-text').innerText = `${winner === 'black' ? '黑棋' : '白棋'} 獲勝！`;
                 winModal.classList.remove('hidden');
-                statusText.innerText = "對局結束";
             } else {
-                statusText.innerText = (currentPlayer === myRole) ? "換你下棋！" : `等候${currentPlayer === 'black' ? '黑棋' : '白棋'}...`;
-                statusText.className = (currentPlayer === myRole) ? "text-lg font-bold text-green-600" : "text-lg font-semibold text-gray-400";
-                playerIndicator.className = `w-6 h-6 rounded-full ${currentPlayer === 'black' ? 'bg-black' : 'bg-white border border-gray-300'}`;
+                statusText.innerText = (currentPlayer === myRole) ? "換你下棋！" : `等候對方...`;
+                playerIndicator.className = `w-6 h-6 rounded-full ${currentPlayer === 'black' ? 'bg-black' : 'bg-white border'}`;
                 winModal.classList.add('hidden');
             }
         }
 
-        async function requestReset() {
-            if (myRole === 'spectator') return;
-            const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomID);
-            await updateDoc(roomRef, {
-                board: JSON.stringify(Array(BOARD_SIZE * BOARD_SIZE).fill(0)),
-                turn: 'black',
-                lastMove: null,
-                winner: null
-            });
-        }
-
-        function checkWin(tempBoard, r, c) {
-            const directions = [[1,0],[0,1],[1,1],[1,-1]];
-            const type = tempBoard[r * BOARD_SIZE + c];
-            for (let [dr, dc] of directions) {
+        function checkWin(b, r, c) {
+            const dirs = [[1,0],[0,1],[1,1],[1,-1]];
+            const t = b[r * BOARD_SIZE + c];
+            for (let [dr, dc] of dirs) {
                 let count = 1;
                 for (let i = 1; i < 5; i++) {
                     const nr = r + dr * i, nc = c + dc * i;
-                    if (nr>=0 && nr<BOARD_SIZE && nc>=0 && nc<BOARD_SIZE && tempBoard[nr * BOARD_SIZE + nc] === type) count++;
-                    else break;
+                    if (nr>=0 && nr<BOARD_SIZE && nc>=0 && nc<BOARD_SIZE && b[nr * BOARD_SIZE + nc] === t) count++; else break;
                 }
                 for (let i = 1; i < 5; i++) {
                     const nr = r - dr * i, nc = c - dc * i;
-                    if (nr>=0 && nr<BOARD_SIZE && nc>=0 && nc<BOARD_SIZE && tempBoard[nr * BOARD_SIZE + nc] === type) count++;
-                    else break;
+                    if (nr>=0 && nr<BOARD_SIZE && nc>=0 && nc<BOARD_SIZE && b[nr * BOARD_SIZE + nc] === t) count++; else break;
                 }
                 if (count >= 5) return true;
             }
             return false;
         }
 
-        function generateShareUrl() {
-            let baseUrl = window.location.href.split('?')[0].split('#')[0];
-            // 修正：如果網址包含 blob 或 preview，提醒用戶
-            if (baseUrl.includes('usercontent.goog') || baseUrl.startsWith('blob:')) {
-                console.warn("目前處於沙盒環境");
+        function getCleanUrl() {
+            // 處理 Blob 或 Sandbox URL 時的特殊情況
+            if (window.location.protocol === 'blob:' || window.location.href.includes('usercontent.goog')) {
+                // 如果在沙盒內，嘗試給一個乾淨的提示，但在正式 GitHub 上會運作正常
+                return window.location.href.split('?')[0].split('#')[0];
             }
-            return `${baseUrl}?room=${roomID}`;
+            return window.location.origin + window.location.pathname;
         }
 
         window.shareToLine = function() {
-            const fullUrl = generateShareUrl();
-            const text = encodeURIComponent(`快來跟我下五子棋！房間：${roomID}\n點擊加入：`);
-            window.open(`https://line.me/R/msg/text/?${text}%0A${encodeURIComponent(fullUrl)}`, '_blank');
+            const url = getCleanUrl() + '?room=' + roomID;
+            window.open(`https://line.me/R/msg/text/?${encodeURIComponent('來跟我下棋！\n' + url)}`, '_blank');
         };
 
         window.copyLink = function() {
-            const fullUrl = generateShareUrl();
-            const tempInput = document.createElement('input');
-            tempInput.value = fullUrl;
-            document.body.appendChild(tempInput);
-            tempInput.select();
+            const url = getCleanUrl() + '?room=' + roomID;
+            const el = document.createElement('textarea');
+            el.value = url;
+            document.body.appendChild(el);
+            el.select();
             document.execCommand('copy');
-            document.body.removeChild(tempInput);
-            alert('對戰連結已複製！');
+            document.body.removeChild(el);
+            alert('連結已複製！');
         };
 
-        window.requestReset = requestReset;
-        initGame();
+        window.requestReset = () => {
+            const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomID);
+            updateDoc(roomRef, {
+                board: JSON.stringify(Array(BOARD_SIZE * BOARD_SIZE).fill(0)),
+                turn: 'black',
+                lastMove: null,
+                winner: null
+            });
+        };
     </script>
 </body>
 </html>
