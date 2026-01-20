@@ -117,19 +117,11 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, onSnapshot, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // Firebase 配置
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
-            apiKey: "",
-            authDomain: "gomoku-game.firebaseapp.com",
-            projectId: "gomoku-game",
-            storageBucket: "gomoku-game.appspot.com",
-            messagingSenderId: "123456789",
-            appId: "1:123456789:web:abcdef"
-        };
-
+        const firebaseConfig = JSON.parse(__firebase_config);
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
@@ -139,21 +131,18 @@
         let boardState = Array(BOARD_SIZE * BOARD_SIZE).fill(0); 
         let currentPlayer = 'black';
         let myRole = null; 
+        let currentUser = null;
         
         const urlParams = new URLSearchParams(window.location.search);
         let roomID = urlParams.get('room');
         
-        // 房號與 URL 更新邏輯修正
         if (!roomID) {
             roomID = 'room-' + Math.random().toString(36).substr(2, 6);
-            // 檢查是否不在沙盒環境且支援 History API 且不是 blob 網址
             if (window.location.protocol !== 'blob:' && !window.location.href.includes('usercontent.goog') && window.history.replaceState) {
                 try {
                     const newUrl = window.location.origin + window.location.pathname + '?room=' + roomID;
                     window.history.replaceState({ path: newUrl }, '', newUrl);
-                } catch (e) {
-                    console.warn("History API 修改失敗，但在正式環境下不影響功能", e);
-                }
+                } catch (e) { console.warn(e); }
             }
         }
 
@@ -169,13 +158,30 @@
 
         roomInfo.innerText = `房間編號: ${roomID}`;
 
-        signInAnonymously(auth).catch(e => console.error(e));
+        // 核心修正：必須先等待身分驗證成功
+        const initAuth = async () => {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (e) {
+                console.error("Auth failed", e);
+                statusText.innerText = "驗證失敗，請重新整理";
+            }
+        };
 
         onAuthStateChanged(auth, (user) => {
-            if (user) setupGameSync(user.uid);
+            if (user) {
+                currentUser = user;
+                setupGameSync(user.uid);
+            }
         });
 
         function setupGameSync(uid) {
+            if (!currentUser) return;
+            // 嚴格遵循規則 1 的路徑格式
             const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomID);
 
             onSnapshot(roomRef, (snapshot) => {
@@ -189,15 +195,20 @@
                         lastMove: null,
                         winner: null,
                         createdAt: Date.now()
-                    });
+                    }).catch(err => console.error("Create room failed:", err));
                 } else {
                     const data = snapshot.data();
                     if (!myRole) {
-                        if (data.blackPlayer === uid) myRole = 'black';
-                        else if (!data.whitePlayer || data.whitePlayer === uid) {
+                        if (data.blackPlayer === uid) {
+                            myRole = 'black';
+                        } else if (!data.whitePlayer || data.whitePlayer === uid) {
                             myRole = 'white';
-                            if (!data.whitePlayer) updateDoc(roomRef, { whitePlayer: uid });
-                        } else myRole = 'spectator';
+                            if (!data.whitePlayer) {
+                                updateDoc(roomRef, { whitePlayer: uid });
+                            }
+                        } else {
+                            myRole = 'spectator';
+                        }
                     }
                     boardState = JSON.parse(data.board);
                     currentPlayer = data.turn;
@@ -205,7 +216,10 @@
                     gameOver = !!data.winner;
                     updateUI(data.winner);
                 }
-            }, (error) => console.error(error));
+            }, (error) => {
+                console.error("Firebase Permission Error:", error);
+                statusText.innerText = "權限不足，請稍後再試";
+            });
         }
 
         function drawBoard() {
@@ -225,19 +239,21 @@
         }
 
         async function handleMove(idx) {
-            if (gameOver || boardState[idx] !== 0 || myRole === 'spectator' || myRole !== currentPlayer) return;
+            if (!currentUser || gameOver || boardState[idx] !== 0 || myRole === 'spectator' || myRole !== currentPlayer) return;
+            
             const newBoard = [...boardState];
             newBoard[idx] = (currentPlayer === 'black' ? 1 : 2);
             const r = Math.floor(idx / BOARD_SIZE);
             const c = idx % BOARD_SIZE;
             const winner = checkWin(newBoard, r, c) ? currentPlayer : null;
+            
             const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomID);
             updateDoc(roomRef, {
                 board: JSON.stringify(newBoard),
                 turn: currentPlayer === 'black' ? 'white' : 'black',
                 lastMove: idx,
                 winner: winner
-            });
+            }).catch(err => console.error("Move failed:", err));
         }
 
         function updateUI(winner) {
@@ -273,9 +289,7 @@
         }
 
         function getCleanUrl() {
-            // 處理 Blob 或 Sandbox URL 時的特殊情況
             if (window.location.protocol === 'blob:' || window.location.href.includes('usercontent.goog')) {
-                // 如果在沙盒內，嘗試給一個乾淨的提示，但在正式 GitHub 上會運作正常
                 return window.location.href.split('?')[0].split('#')[0];
             }
             return window.location.origin + window.location.pathname;
@@ -298,6 +312,7 @@
         };
 
         window.requestReset = () => {
+            if (!currentUser) return;
             const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomID);
             updateDoc(roomRef, {
                 board: JSON.stringify(Array(BOARD_SIZE * BOARD_SIZE).fill(0)),
@@ -306,6 +321,8 @@
                 winner: null
             });
         };
+
+        initAuth();
     </script>
 </body>
 </html>
